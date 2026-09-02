@@ -1,0 +1,17 @@
+{
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["lib/indexer/**/*.ts", "lib/erc8004/**/*.ts", "lib/marketplace/**/*.ts", "lib/strategies/**/*.ts", "lib/scoring/**/*.ts", "lib/metrics/**/*.ts", "lib/hire/**/*.ts", "scripts/*.ts", "app/api/**/*.ts", "components/home/**/*.{ts,tsx}", "components/agent-detail/**/*.{ts,tsx}", "components/my-agents/**/*.{ts,tsx}", "examples/**/*.ts"],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off"
+      }
+    }
+  ]
+}

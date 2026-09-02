@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE SIDEKICK — design token layer
+   Institutional / editorial dark. Near-black surfaces, one brass accent,
+   tabular numerals, subtle motion. Reference these tokens everywhere;
+   never hardcode a hex in a component.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Ink & surfaces — near-black, slightly warm to feel editorial not "web3" */
+  --color-background: #0b0c0e;      /* page base */
+  --color-surface: #121316;         /* cards / panels */
+  --color-surface-raised: #1a1c20;  /* hover / raised controls */
+  --color-border: #24262b;          /* hairlines */
+  --color-border-strong: #34373d;
+
+  --color-foreground: #e8e6e1;      /* primary text */
+  --color-muted: #9a9995;           /* secondary text */
+  --color-faint: #6b6a66;           /* tertiary / captions */
+
+  /* One restrained accent — brass amber. Reserve for numbers, CTAs, focus. */
+  --color-accent: #c9a227;
+  --color-accent-strong: #e0bb3a;
+  --color-accent-faint: rgba(201, 162, 39, 0.12);
+  --color-on-accent: #0b0c0e;       /* text on accent — near-black, not white */
+
+  /* Typography */
+  --font-sans: "GeistSans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "GeistMono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+/* Base layer — apply the shell once, inherit everywhere */
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+
+  ::selection {
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+}
+
+@layer components {
+  /* Tabular numerals for any numeric data (prices, scores, tx counts).
+     Use `.tabular` — guaranteed tabular, not glyph-dependent.
+     ss09 = plain (non-dotted) zero in Geist fonts — removes the centre dot
+     from the dotted 'zero' glyph in GeistMono (addresses, tx counts, figures). */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "cv11" 1, "ss09" 1;
+  }
+
+  /* Plain zero on every mono glyph (addresses 0x…, tx counts, card stats),
+     matching the ss09 above so no dotted-zero appears anywhere. */
+  .font-mono {
+    font-feature-settings: "ss09" 1;
+  }
+
+  /* Hairline dividers — editorial rule, not a border-box */
+  .rule {
+    border-top: 1px solid var(--color-border);
+  }
+
+  /* Restrained focus ring — one accent, no glow */
+  .focus-ring:focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* 2-line clamp (no Tailwind plugin) */
+  .clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* Motion — prefers-reduced-motion always respected */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
