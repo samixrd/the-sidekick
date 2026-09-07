@@ -157,21 +157,27 @@ export async function scanWalletActivity(
   // ── Venus vWBNB + vBNB + vUSDC lend events ──
   // NOTE: Venus Mint/Redeem emit NO indexed participant, so a topic filter on
   // `args:{minter}` would silently match nothing. Fetch ALL logs for each event
-  // and filter by the decoded participant in JS instead.
+  // and filter by the decoded participant in JS instead. getLogs is chunked —
+  // a 40k-block single fetch throws on public RPC limits, and the old silent
+  // catch hid ALL Venus activity (real bug: today's strengthen txs vanished).
   const venusEvents = VENUS_ABI.filter((a: any) => a.type === "event");
+  const CHUNK = 3_000n;
   for (const contract of [VENUS_vWBNB, VENUS_vBNB, VENUS_vUSDC]) {
     for (const ev of venusEvents as any[]) {
       const name = ev.name as "Mint" | "Redeem" | "Borrow" | "RepayBorrow";
-      try {
-        const logs = await client.getLogs({ address: contract, event: ev, fromBlock, toBlock });
-        for (const l of logs as any[]) {
-          const e = decodeVenus(l, name);
-          if (!e || e.wallet.toLowerCase() !== wallet.toLowerCase()) continue;
-          e.block_timestamp = await stamp(l.blockNumber!);
-          if (e.block_timestamp) out.push(e);
+      for (let lo = fromBlock; lo <= toBlock; lo += CHUNK) {
+        const hi = lo + CHUNK - 1n < toBlock ? lo + CHUNK - 1n : toBlock;
+        try {
+          const logs = await client.getLogs({ address: contract, event: ev, fromBlock: lo, toBlock: hi });
+          for (const l of logs as any[]) {
+            const e = decodeVenus(l, name);
+            if (!e || e.wallet.toLowerCase() !== wallet.toLowerCase()) continue;
+            e.block_timestamp = await stamp(l.blockNumber!);
+            if (e.block_timestamp) out.push(e);
+          }
+        } catch {
+          // some venus events unsupported on a market — skip this chunk
         }
-      } catch {
-        // some venus events unsupported on a market — skip
       }
     }
   }

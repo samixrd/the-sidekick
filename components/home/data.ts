@@ -23,6 +23,7 @@ export interface AgentCardData {
   status: "verified" | "new" | "limited";
   txCount: number;
   lastActionAgoMin: number | null;
+  activity: { status: "Active" | "Idle"; lastActionAgoMin: number | null; note: string };
   recent12h: { txCount: number; byType: Record<string, number> };
   strategyConsistent: boolean | null;
   description: string;
@@ -96,6 +97,7 @@ export function buildCards(
       status,
       txCount: txCount || m.recent12h.txCount,
       lastActionAgoMin: m.freshness.lastActionAgoMin,
+      activity: m.activity,
       recent12h: m.recent12h,
       strategyConsistent: m.strategy.consistent,
       description: CATEGORY_DESCRIPTIONS[category] ?? "",

@@ -28,8 +28,10 @@ function StatusTag({ status }: { status: AgentCardData["status"] }) {
 }
 
 export function AgentCard({ card, compareSelected = false, onCompareToggle }: { card: AgentCardData; compareSelected?: boolean; onCompareToggle?: (wallet: string) => void }) {
-  const live = card.lastActionAgoMin !== null && card.lastActionAgoMin <= 120;
-  const liveLabel = live ? `${card.lastActionAgoMin} min ago` : card.lastActionAgoMin !== null ? `${card.lastActionAgoMin} min ago` : "No activity";
+  const live = card.activity?.status === "Active";
+  const ago = card.activity?.lastActionAgoMin ?? card.lastActionAgoMin;
+  const liveLabel = card.activity?.note
+    ?? (ago !== null ? (ago < 60 ? `${ago} min ago` : `${Math.round(ago / 60)}h ago`) : "No activity");
   const strategyOk = card.strategyConsistent === true;
 
   return (

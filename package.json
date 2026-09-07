@@ -37,7 +37,9 @@
     "score:report": "tsx scripts/score-report.ts",
     "metrics:report": "tsx scripts/metrics-report.ts",
     "grid:sell": "tsx scripts/grid-sell.ts",
-    "rebal:sell": "tsx scripts/rebal-sell.ts"
+    "rebal:sell": "tsx scripts/rebal-sell.ts",
+    "strategy:cycle": "tsx scripts/strategy-cycle.ts",
+    "strategy:cron": "bash scripts/run-strategy.sh"
   },
   "dependencies": {
     "@altananetwork/sdk": "^0.8.0",

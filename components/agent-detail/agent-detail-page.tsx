@@ -229,6 +229,11 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
           <StatCell label="Total tx" value={metric?.txCount ?? 0} sub="all events" />
           <StatCell label="Category benchmark" value={peers === 0 ? "—" : fmtUsd(ownReturn)} sub={peers === 0 ? "only agent in this category — nothing to benchmark yet" : `vs ${peers} peer(s): ${fmtUsd(catAvg)}`} />
           <StatCell label="Freshness" value={fmtAgoMin(metric?.freshness.lastActionAgoMin)} sub="indexer updates every 2h" />
+          <StatCell
+            label="Status"
+            value={metric?.activity?.status ?? "Idle"}
+            sub={metric?.activity?.note ?? "no indexed on-chain action yet"}
+          />
         </div>
 
         {/* P&L headline + skill + risk */}

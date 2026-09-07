@@ -20,6 +20,7 @@ export interface MetricsResult {
   category: string;
   txCount: number;           // lifetime indexed events (all types, not just swaps)
   freshness: { lastActionAgoMin: number | null; lastActionAt: string | null; cadenceNote: string };
+  activity: { status: "Active" | "Idle"; lastActionAgoMin: number | null; note: string };
   pnl: {
     realized7d: number | null; realizedLifetime: number | null;
     markToMarket: number | null; total7d: number | null; totalLifetime: number | null;
@@ -198,10 +199,23 @@ export async function computeAllMetrics(): Promise<MetricsResult[]> {
 
     // freshness
     const lastActionAgoMin = lastAt ? Math.round((nowMs - Date.parse(lastAt)) / 60000) : null;
+    // computed Active status: a real indexed action < 2h ago (strategy loop
+    // runs every 45 min) — distinct from Verified (7-day history).
+    const ACTIVE_WINDOW_MIN = 120;
+    const activity: { status: "Active" | "Idle"; lastActionAgoMin: number | null; note: string } = {
+      status: lastActionAgoMin !== null && lastActionAgoMin < ACTIVE_WINDOW_MIN ? "Active" : "Idle",
+      lastActionAgoMin,
+      note: lastActionAgoMin === null
+        ? "Idle — no indexed on-chain action yet"
+        : lastActionAgoMin < ACTIVE_WINDOW_MIN
+          ? `Active — last on-chain action ${lastActionAgoMin < 60 ? `${lastActionAgoMin}m` : `${Math.round(lastActionAgoMin / 60)}h`} ago`
+          : `Idle — last action ${Math.round(lastActionAgoMin / 60)}h ago`,
+    };
 
     results.push({
       wallet, tokenId, category, txCount: evs.length,
       freshness: { lastActionAgoMin, lastActionAt: lastAt, cadenceNote: "indexer data updated every 2h (cron)" },
+      activity,
       pnl: {
         realized7d, realizedLifetime: closedTrades > 0 ? Math.round(realizedLifetime * 1000) / 1000 : null,
         markToMarket: Math.round(mtm * 1000) / 1000,

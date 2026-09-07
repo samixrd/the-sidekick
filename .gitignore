@@ -40,3 +40,8 @@ next-env.d.ts
 
 # indexer runtime logs
 /.indexer-logs/
+
+# strategy loop runtime logs + state
+/.strategy-logs/
+/.strategy-state/
+_*.mts

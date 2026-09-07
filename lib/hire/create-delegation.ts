@@ -51,9 +51,17 @@ export async function createDelegation(o: HireDelegationOpts) {
   const client = createClient({ chains: [BNB_TESTNET] });
   const adminSigner = signerFromPrivateKey(o.agentKey!);
   const wallet = await client.createWallet({ signer: adminSigner });
+  // Persisted session signer: we generate the session key ourselves so the
+  // scheduled strategy loop can reconstruct the session later (no user present
+  // at 3am). It only permits calls to the GuardRouter, capped by the spend cap.
+  const sessionPkBytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) sessionPkBytes[i] = Math.floor(Math.random() * 256);
+  const sessionPk = ("0x" + Buffer.from(sessionPkBytes).toString("hex")) as `0x${string}`;
+  const sessionSigner = signerFromPrivateKey(sessionPk);
   const session = await client.grantSession({
     wallet,
     signer: adminSigner,
+    sessionSigner,
     chainId: 97,
     permissions: {
       calls: [{ to: GUARD }],                              // ONLY the Guard Router
@@ -100,6 +108,7 @@ export async function createDelegation(o: HireDelegationOpts) {
     agent_wallet: o.agentWallet.toLowerCase(),
     session_key: sessionKey.toLowerCase(),
     session_public_key: sessionPubKey || null,
+    session_private_key: sessionPk,
     hire_id: hireId.toLowerCase(),
     guard_router: GUARD.toLowerCase(),
     token_scope: JSON.stringify(o.tokenScope),
