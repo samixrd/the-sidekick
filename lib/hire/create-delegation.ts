@@ -18,6 +18,7 @@ import { ERC8183Client, AltanaWalletProvider } from "@bnbagent/sdk";
 import { createAdminSupabaseClient } from "../supabase/admin";
 import { privateKeyToAccount } from "viem/accounts";
 import { readFileSync } from "node:fs";
+import { envGet } from "../env";
 
 export interface HireStep {
   step: string;        // "session-grant" | "create-hire" | "erc8183-job" | "persist"
@@ -43,7 +44,7 @@ export interface HireDelegationOpts {
 
 export async function createDelegation(o: HireDelegationOpts) {
   const admin = createAdminSupabaseClient();
-  const GUARD = (readFileSync(".env", "utf8").match(/^GUARD_ROUTER="?([^"\r\n]+)/m)?.[1] ?? "") as `0x${string}`;
+  const GUARD = envGet("GUARD_ROUTER") as `0x${string}`;
   const step = (s: HireStep) => { if (o.onStep) return o.onStep(s); };
 
   // ── 1) Altana session grant (allowlist → Guard Router; Keystore-registered) ──
@@ -129,11 +130,10 @@ export async function createDelegation(o: HireDelegationOpts) {
 
 /** Resolve an agent's private key server-side (never from the client). */
 export function resolveAgentKey(agentWallet: `0x${string}`): `0x${string}` | null {
-  const env = readFileSync(".env", "utf8");
-  const get = (k: string) => (env.match(new RegExp(`^${k}="?([^"\r\n]+)`, "m"))?.[1] ?? "").replace(/^0x/, "");
+  const get = (k: string) => envGet(k).replace(/^0x/, "");
   const jsonPath = "D:/BNB HACKATHON/the-tape/agents/.agent-wallets.json";
   let jsonKeys: Record<string, string> = {};
-  try { jsonKeys = JSON.parse(readFileSync(jsonPath, "utf8")); } catch { /* ignore */ }
+  try { jsonKeys = JSON.parse(readFileSync(jsonPath, "utf8")); } catch { /* ignore (not present on server deploys) */ }
 
   const candidates = [
     get("CAT_REBALANCE_KEY"), get("CAT_YIELD_KEY"), get("CAT_HEALTH_KEY"), get("CAT_GRID_KEY"),

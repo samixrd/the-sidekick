@@ -1,9 +1,10 @@
 #!/bin/bash
 # THE SIDEKICK strategy loop — cron wrapper.
-# Runs one full strategy cycle (all 4 category agents) every 45 minutes so
-# "activity" is genuinely observable during a demo window. Every decision is
-# appended to `strategy_runs`; executed txs are real on-chain transactions that
-# the 2h indexer then attributes to the agent wallets.
+# Runs one full strategy cycle (all 4 category agents). The PRIMARY scheduler
+# is the 15-min GitHub Actions cron (.github/workflows/agent-autonomy.yml);
+# this wrapper is the local/Windows fallback. Every decision is appended to
+# `strategy_runs`; executed txs are real on-chain transactions that the
+# checkpointed indexer (same workflow) attributes to the agent wallets.
 #
 # Scheduled via a Hermes cron job OR Windows Task Scheduler:
 #   schtasks /create /tn the-sidekick-strategy /tr "bash .../run-strategy.sh" /sc MINUTE /mo 45

@@ -36,6 +36,7 @@
     "e2e:session-swap": "tsx scripts/e2e-session-swap.mts",
     "score:report": "tsx scripts/score-report.ts",
     "metrics:report": "tsx scripts/metrics-report.ts",
+    "treasury:topup": "tsx scripts/treasury-topup.ts",
     "grid:sell": "tsx scripts/grid-sell.ts",
     "rebal:sell": "tsx scripts/rebal-sell.ts",
     "strategy:cycle": "tsx scripts/strategy-cycle.ts",

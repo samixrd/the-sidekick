@@ -51,6 +51,16 @@ export interface ListingRow {
   bond_wei: string;
 }
 
+/** One strategy-loop decision (INSERT-only audit trail, visible in real time). */
+export interface RunRow {
+  category: string;
+  action: string;
+  status: string;          // executed | skipped | error
+  reason: string;
+  tx_hash: string | null;
+  created_at: string;
+}
+
 export interface AgentDetail {
   wallet: string;
   metric: MetricsResult | null;
@@ -58,6 +68,7 @@ export interface AgentDetail {
   events: EventRow[];
   trend: TrendPoint[];
   hires: HireRow[];
+  runs: RunRow[];
   listing: ListingRow | null;
 }
 

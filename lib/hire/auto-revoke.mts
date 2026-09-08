@@ -22,9 +22,8 @@ import { createWalletClient, createPublicClient, http, keccak256 } from "viem";
 import { bscTestnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { createAdminSupabaseClient } from "../supabase/admin";
-import { readFileSync } from "node:fs";
+import { envGet } from "../env";
 
-const env = readFileSync(".env", "utf8");
 const admin = createAdminSupabaseClient();
 const KEYSTORE = "0x6b8361C29d05D498b1a12B54A37310f94171E94A".toLowerCase();
 const RISK_FLAG_THRESHOLD = 3; // real risk-label count (Step 7) at/above which a delegation auto-revokes
@@ -108,9 +107,9 @@ const KEYSTORE_ABI = [
 
 /** The admin key that grants/revokes sessions for the agent (the category signer). */
 function resolveAgentKey(): `0x${string}` {
-  const k = (env.match(/^CAT_REBALANCE_KEY="?([^"\r\n]+)/m)?.[1] ?? "").replace(/^0x/, "");
+  const k = envGet("CAT_REBALANCE_KEY").replace(/^0x/, "");
   if (k) return ("0x" + k) as `0x${string}`;
-  const m = (env.match(/^ERC8004_SIGNER_KEY="?([^"\r\n]+)/m)?.[1] ?? "").replace(/^0x/, "");
+  const m = envGet("ERC8004_SIGNER_KEY").replace(/^0x/, "");
   return ("0x" + m) as `0x${string}`;
 }
 

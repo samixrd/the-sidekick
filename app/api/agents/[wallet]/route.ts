@@ -49,6 +49,16 @@ export async function GET(_req: Request, { params }: { params: { wallet: string 
     .eq("agent_wallet", wallet)
     .order("created_at", { ascending: false });
 
+  // 5b. decision feed — every strategy-loop cycle outcome (executed AND skipped,
+  // with the on-chain reason + tx when it acted). Written directly by the loop,
+  // so it is visible the second it happens — no indexer lag. Audit-only table.
+  const { data: runs } = await admin
+    .from("strategy_runs")
+    .select("category, action, status, reason, tx_hash, created_at")
+    .eq("agent_wallet", wallet)
+    .order("created_at", { ascending: false })
+    .limit(30);
+
   const listing = await admin.from("agent_listings").select("erc8004_token_id, category, bond_wei").eq("agent_wallet", wallet).maybeSingle();
 
   return NextResponse.json({
@@ -58,6 +68,7 @@ export async function GET(_req: Request, { params }: { params: { wallet: string 
     events: events ?? [],
     trend: (trend ?? []).filter((t: any) => t.trust_score !== null).map((t: any) => ({ at: t.snapshot_timestamp, trust: Number(t.trust_score) })),
     hires: hires ?? [],
+    runs: runs ?? [],
     listing: listing.data ?? null,
   });
 }

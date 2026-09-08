@@ -57,19 +57,24 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
 
   useEffect(() => {
     let alive = true;
-    (async () => {
+    const load = async () => {
       try {
-        const r = await fetch(`/api/agents/${wallet}`);
+        const r = await fetch(`/api/agents/${wallet}`, { cache: "no-store" });
         const j = await r.json();
         if (!alive) return;
         setData(j);
       } catch (e) {
-        if (alive) setError((e as Error).message || "Failed to load agent.");
+        if (alive && !data) setError((e as Error).message || "Failed to load agent.");
       } finally {
         if (alive) setLoading(false);
       }
-    })();
-    return () => { alive = false; };
+    };
+    load();
+    // live polling: the strategy loop + fast indexer write every few minutes —
+    // an open detail page refreshes itself, so "activity" is verifiably live.
+    const timer = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
 
   const metric = data?.metric ?? null;
@@ -228,7 +233,7 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
           <StatCell label="Age" value={ageDaysFromFirst !== null ? `${ageDaysFromFirst.toFixed(1)}d` : "—"} sub="since first indexed tx" />
           <StatCell label="Total tx" value={metric?.txCount ?? 0} sub="all events" />
           <StatCell label="Category benchmark" value={peers === 0 ? "—" : fmtUsd(ownReturn)} sub={peers === 0 ? "only agent in this category — nothing to benchmark yet" : `vs ${peers} peer(s): ${fmtUsd(catAvg)}`} />
-          <StatCell label="Freshness" value={fmtAgoMin(metric?.freshness.lastActionAgoMin)} sub="indexer updates every 2h" />
+          <StatCell label="Freshness" value={fmtAgoMin(metric?.freshness.lastActionAgoMin)} sub="chain indexed every 15 min" />
           <StatCell
             label="Status"
             value={metric?.activity?.status ?? "Idle"}
@@ -316,6 +321,32 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
             )}
           </Panel>
         </div>
+
+        {/* Live decision feed — strategy-loop audit rows (real-time, no indexer lag) */}
+        <Panel title="Live decision feed" className="mt-4">
+          {(data.runs ?? []).length === 0 ? (
+            <p className="text-[11px] italic text-faint">No scheduled decisions yet — the strategy loop logs every cycle here, executed or not.</p>
+          ) : (
+            <>
+              <ul className="divide-y divide-border text-xs">
+                {(data.runs ?? []).slice(0, 12).map((r, i) => (
+                  <li key={i} className="flex flex-wrap items-center gap-2 py-2">
+                    <span className="w-14 shrink-0 font-mono text-[10px] text-faint">{String(r.created_at ?? "").slice(11, 19)}</span>
+                    <span className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${r.status === "executed" ? "border-accent/40 bg-accent-faint text-accent" : r.status === "error" ? "border-destructive/40 text-destructive" : "border-border text-faint"}`}>
+                      {r.status === "executed" ? "acted" : r.status}
+                    </span>
+                    <span className="w-24 shrink-0 truncate font-mono text-[10px] text-muted">{r.category}</span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-foreground" title={r.reason}>{r.reason}</span>
+                    {r.tx_hash && (
+                      <a href={bscscanTxUrl(r.tx_hash)} target="_blank" rel="noreferrer" className="font-mono text-[10px] text-faint underline-offset-2 hover:text-foreground hover:underline">{shortHash(r.tx_hash)}</a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[10px] text-faint">Every scheduled cycle logs its decision here — INSERT-only audit trail, refreshed live (30s).</p>
+            </>
+          )}
+        </Panel>
 
         {/* Full activity feed */}
         <Panel title="Activity feed" className="mt-4">

@@ -1,7 +1,7 @@
 /**
  * STRATEGY LOOP — scheduled autonomous behavior for the 4 category agents.
  *
- * Every cycle (45 min cron) each agent:
+ * Every cycle (15-min GitHub Actions cron) each agent:
  *   1. reads its live position (on-chain, real reads),
  *   2. decides whether its strategy says "act now",
  *   3. when it acts, executes a REAL transaction — routed through the active
@@ -29,19 +29,27 @@ import { resolve } from "node:path";
 
 // ── env + keys ────────────────────────────────────────────────────────────
 const ENV_PATH = resolve(process.cwd(), ".env");
+const ENV_MEM = (() => {
+  try { return readFileSync(ENV_PATH, "utf8"); } catch { return ""; }
+})();
 function envGet(key: string): string {
-  try {
-    const m = new RegExp(`^${key}="?([^"\r\n]+)`, "m").exec(readFileSync(ENV_PATH, "utf8"));
-    return m ? m[1].trim() : "";
-  } catch { return ""; }
+  // ambient env first (GitHub Actions secrets), then local .env file
+  const amb = process.env[key];
+  if (amb) return amb.trim();
+  const m = new RegExp(`^${key}="?([^"\r\n]+)`, "m").exec(ENV_MEM);
+  return m ? m[1].trim() : "";
 }
 const JSON_WALLETS_PATH = "D:/BNB HACKATHON/the-tape/agents/.agent-wallets.json";
 export function agentKey(wallet: string): `0x${string}` | null {
-  const candidates: string[] = [envGet("CAT_REBALANCE_KEY"), envGet("CAT_YIELD_KEY"), envGet("CAT_HEALTH_KEY")];
-  try {
-    const json = JSON.parse(readFileSync(JSON_WALLETS_PATH, "utf8"));
-    for (const v of Object.values(json)) candidates.push(String(v));
-  } catch { /* optional */ }
+  const candidates: string[] = [
+    envGet("CAT_GRID_KEY"), envGet("CAT_REBALANCE_KEY"), envGet("CAT_YIELD_KEY"), envGet("CAT_HEALTH_KEY"),
+  ].filter(Boolean);
+  if (existsSync(JSON_WALLETS_PATH)) {
+    try {
+      const json = JSON.parse(readFileSync(JSON_WALLETS_PATH, "utf8"));
+      for (const v of Object.values(json)) candidates.push(String(v));
+    } catch { /* optional */ }
+  }
   for (const k of candidates) {
     try {
       if (privateKeyToAccount(("0x" + k.replace(/^0x/, "")) as `0x${string}`).address.toLowerCase() === wallet.toLowerCase()) {
@@ -61,7 +69,7 @@ const PCS_PAIR = "0x5f52ad4bd4f519ae79999400ad8b83a3d002fd92" as const;
 const VENUS_COMPTROLLER = "0x94d1820b2d1c7c7452a163983dc888cec546b77d" as const;
 const VENUS_VWBNB = "0xd9e77847ec815e56ae2b9e69596c69b6972b0b1c" as const;
 const VENUS_VUSDC = "0xd5c4c2e2facbeb59d0216d0595d63fcdc6f9a1a7" as const;
-const RPC = "https://bsc-testnet-rpc.publicnode.com";
+const RPC = envGet("BSC_TESTNET_RPC_URL") || "https://bsc-testnet-rpc.publicnode.com";
 const GUARD = envGet("GUARD_ROUTER") as `0x${string}`;
 
 const ERC20_ABI = [
@@ -150,16 +158,49 @@ async function vTokenApr(vToken: Address): Promise<number> {
 }
 
 // ── persisted cycle state (grid anchor / yield market / last runs) ────────
-function readState<T>(file: string, fallback: T): T {
+// Backed by the Supabase `strategy_state` table (migration 0011) so the loop
+// is fully stateless per-run and can execute on ephemeral CI runners (GitHub
+// Actions cron) without losing the grid anchor / cooldowns. Falls back to
+// local files when Supabase env is absent (offline dev).
+type DbClient = ReturnType<typeof supabase>;
+let dbCache: DbClient | null | undefined; // undefined = not probed, null = unavailable
+function dbOpt(): DbClient | null {
+  if (dbCache === undefined) {
+    try { dbCache = supabase(); } catch { dbCache = null; }
+  }
+  return dbCache;
+}
+const stateCache = new Map<string, unknown>();
+async function readState<T>(file: string, fallback: T): Promise<T> {
+  if (stateCache.has(file)) return stateCache.get(file) as T;
+  const db = dbOpt();
+  if (db) {
+    try {
+      const { data } = await db.from("strategy_state").select("value").eq("key", file).maybeSingle();
+      if (data?.value) { const v = data.value as T; stateCache.set(file, v); return v; }
+      return fallback;
+    } catch { /* fall through to file */ }
+  }
   try {
     const p = resolve(STATE_DIR, file);
     if (!existsSync(p)) return fallback;
     return JSON.parse(readFileSync(p, "utf8")) as T;
   } catch { return fallback; }
 }
-function writeState(file: string, value: unknown): void {
-  mkdirSync(STATE_DIR, { recursive: true });
-  writeFileSync(resolve(STATE_DIR, file), JSON.stringify(value, null, 2));
+async function writeState(file: string, value: unknown): Promise<void> {
+  stateCache.set(file, value);
+  const db = dbOpt();
+  if (db) {
+    try {
+      const { error } = await db.from("strategy_state").upsert({ key: file, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      if (!error) return;
+      console.error(`  strategy_state upsert failed (${file}):`, error.message);
+    } catch (e) { console.error("  strategy_state upsert threw:", (e as Error).message); }
+  }
+  try {
+    mkdirSync(STATE_DIR, { recursive: true });
+    writeFileSync(resolve(STATE_DIR, file), JSON.stringify(value, null, 2));
+  } catch { /* best-effort */ }
 }
 
 // ── supabase (admin) + hire policy ───────────────────────────────────────
@@ -270,23 +311,26 @@ async function executeSwap(opts: {
 // ── 1) GRID: buy low / sell high around an anchored price ─────────────────
 async function gridCycle(agentWallet: Address, key: `0x${string}`, hire: HirePolicy | null) {
   const price = await wbnbPriceUsdt();
-  const state = readState<{ anchor?: number; verifiedGuarded?: boolean }>("grid.json", {});
+  const state = await readState<{ anchor?: number; verifiedGuarded?: boolean; verifiedForHire?: string }>("grid.json", {});
   if (!state.anchor || price <= 0) {
-    writeState("grid.json", { ...state, anchor: price });
+    await writeState("grid.json", { ...state, anchor: price });
     await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "anchor", status: "skipped", reason: "no anchor — initialized", details: { anchorPrice: price } });
     return { acted: false, reason: `anchor initialized at ${price.toFixed(2)}` };
   }
   const low = state.anchor * (1 - GRID_BAND);
   const high = state.anchor * (1 + GRID_BAND);
-  // one-time guarded-path verification: while hired, prove the loop can really
-  // execute through the hire's session + GuardRouter (small sell inside cap).
-  if (hire && hire.hireId && !state.verifiedGuarded) {
+  // per-HIRE guarded-path verification: whenever a NEW hire appears (e.g. a
+  // judge just hired this agent), prove within one cycle that the loop really
+  // executes through THAT hire's session + GuardRouter (small sell inside cap).
+  // The proof is bound to the hireId, so every hire gets its own on-chain,
+  // session-enforced action attributed to it — verifiable, not staged.
+  if (hire && hire.hireId && state.verifiedForHire !== hire.hireId) {
     const wbnbBal = await tokenBalance(WBNB as Address, agentWallet);
     if (wbnbBal >= 0.0004) {
       const { txHash, routed } = await executeSwap({ agentWallet, key, tokenIn: WBNB as Address, tokenOut: USDT as Address, amountIn: parseUnits("0.0003", 18), hire, label: "grid-verify" });
-      writeState("grid.json", { ...state, verifiedGuarded: true });
-      await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "verify", status: "executed", reason: "guarded routing verified through hire session + GuardRouter", details: { txHash, routed, hireId: hire.hireId } });
-      return { acted: true, reason: `guarded path verified (${routed}) through hire ${hire.delegId}`, txHash };
+      await writeState("grid.json", { ...state, verifiedGuarded: true, verifiedForHire: hire.hireId });
+      await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "verify", status: "executed", reason: `guarded routing verified through hire ${hire.delegId} (session + GuardRouter, on-chain scope/cap enforced)`, details: { txHash, routed, hireId: hire.hireId } });
+      return { acted: true, reason: `guarded path verified (${routed}) for your hire ${hire.delegId}`, txHash };
     }
   }
   if (price >= low && price <= high) {
@@ -307,7 +351,7 @@ async function gridCycle(agentWallet: Address, key: `0x${string}`, hire: HirePol
     if (sell < 0.00005) { await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "sell", status: "skipped", reason: "insufficient WBNB", details: { wbnb } }); return { acted: false, reason: "insufficient WBNB" }; }
     ({ txHash, routed } = await executeSwap({ agentWallet, key, tokenIn: WBNB as Address, tokenOut: USDT as Address, amountIn: parseUnits(sell.toFixed(10), 18), hire, label: "grid-sell" }));
   }
-  writeState("grid.json", { anchor: price }); // re-anchor after the trade
+  await writeState("grid.json", { anchor: price }); // re-anchor after the trade
   await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: price < low ? "buy" : "sell", status: "executed", reason: `price $${price.toFixed(2)} outside band`, details: { txHash, routed, price, anchor: state.anchor } });
   return { acted: true, reason: `${price < low ? "buy" : "sell"} (${routed}) — price $${price.toFixed(2)} vs anchor $${state.anchor.toFixed(2)}`, txHash };
 }
@@ -319,7 +363,7 @@ async function rebalCycle(agentWallet: Address, key: `0x${string}`, _hire: HireP
   const [r0, r1] = await pub.readContract({ address: PCS_PAIR, abi: PAIR_ABI, functionName: "getReserves" });
   const t0 = (await pub.readContract({ address: PCS_PAIR, abi: PAIR_ABI, functionName: "token0" })).toLowerCase();
   const price = Number(t0 === WBNB ? Number(r1) / Number(r0) : Number(r0) / Number(r1));
-  const state = readState<{ anchor?: number }>("rebal.json", {});
+  const state = await readState<{ anchor?: number }>("rebal.json", {});
   const drift = state.anchor && price > 0 ? Math.abs(price / state.anchor - 1) : 0;
   const TOLERANCE = 0.2;
 
@@ -343,7 +387,7 @@ async function rebalCycle(agentWallet: Address, key: `0x${string}`, _hire: HireP
       args: [getAddress(USDT) as Address, getAddress(WBNB) as Address, parseUnits((usdt * 0.9).toFixed(8), 18), parseUnits((wbnb * 0.9).toFixed(10), 18), 0n, 0n, getAddress(agentWallet) as Address, deadline],
     });
     await pub.waitForTransactionReceipt({ hash: add });
-    writeState("rebal.json", { anchor: price });
+    await writeState("rebal.json", { anchor: price });
     await logRun({ agent_wallet: agentWallet, category: "Rebalancing", action: "recenter", status: "executed", reason: `drift ${(drift * 100).toFixed(1)}% > 20%`, details: { removeTx: rm, addTx: add, drift, price } });
     return { acted: true, reason: `re-centered LP (drift ${(drift * 100).toFixed(1)}%)`, txHash: add };
   }
@@ -362,7 +406,7 @@ async function rebalCycle(agentWallet: Address, key: `0x${string}`, _hire: HireP
     args: [getAddress(USDT) as Address, getAddress(WBNB) as Address, parseUnits(REBAL_USDT_LEG.toFixed(8), 18), parseUnits(REBAL_WBNB_LEG.toFixed(10), 18), 0n, 0n, getAddress(agentWallet) as Address, deadline],
   });
   await pub.waitForTransactionReceipt({ hash: add });
-  writeState("rebal.json", { anchor: price });
+  await writeState("rebal.json", { anchor: price });
   await logRun({ agent_wallet: agentWallet, category: "Rebalancing", action: "establish", status: "executed", reason: "no LP — established 50/50 position", details: { addTx: add, price } });
   return { acted: true, reason: "LP established (real addLiquidity)", txHash: add };
 }
@@ -382,7 +426,7 @@ async function yieldCycle(agentWallet: Address, key: `0x${string}`, hire: HirePo
     aprs.push({ key: m.key, label: m.label, apr, usable: held > 0.0001 });
   }
   const usable = aprs.filter((a) => a.usable).sort((a, b) => b.apr - a.apr);
-  const state = readState<{ market?: string }>("yield.json", {});
+  const state = await readState<{ market?: string }>("yield.json", {});
   const current = aprs.find((a) => a.key === state.market) ?? null;
   const best = usable[0] ?? null;
   const GAP = 0.5; // percentage points
@@ -401,7 +445,7 @@ async function yieldCycle(agentWallet: Address, key: `0x${string}`, hire: HirePo
       const appr = await ensureApproval(client, agentWallet, m.token as Address, m.v as Address, parseUnits(got.toFixed(8), m.dec));
       const h = await client.writeContract({ address: m.v as Address, abi: VTOKEN_ABI, functionName: "mint", args: [parseUnits(got.toFixed(8), m.dec)] });
       await pub.waitForTransactionReceipt({ hash: h });
-      writeState("yield.json", { market: m.key });
+      await writeState("yield.json", { market: m.key });
       await logRun({ agent_wallet: agentWallet, category: "Yield", action: "supply", status: "executed", reason: `converted idle USDT → ${m.label} supply (${got.toFixed(4)} tokens)`, details: { swapTx, mintTx: h, approveTx: appr, market: m.key, converted: swapAmt } });
       return { acted: true, reason: `converted idle USDT → ${m.label} @ ${m.label.includes("WBNB") ? "vWBNB" : "vUSDC"} supply`, txHash: h };
     }
@@ -417,7 +461,7 @@ async function yieldCycle(agentWallet: Address, key: `0x${string}`, hire: HirePo
     const appr = await ensureApproval(client, agentWallet, m.token as Address, m.v as Address, parseUnits(amt.toFixed(8), m.dec));
     const h = await client.writeContract({ address: m.v as Address, abi: VTOKEN_ABI, functionName: "mint", args: [parseUnits(amt.toFixed(8), m.dec)] });
     await pub.waitForTransactionReceipt({ hash: h });
-    writeState("yield.json", { market: m.key });
+    await writeState("yield.json", { market: m.key });
     await logRun({ agent_wallet: agentWallet, category: "Yield", action: "supply", status: "executed", reason: `initial supply → ${m.label} @ ${best.apr.toFixed(2)}% APR`, details: { txHash: h, approveTx: appr, apr: best.apr, market: m.key } });
     return { acted: true, reason: `supplied to ${m.label} @ ${best.apr.toFixed(2)}% APR`, txHash: h };
   }
@@ -426,7 +470,7 @@ async function yieldCycle(agentWallet: Address, key: `0x${string}`, hire: HirePo
     const cur = YIELD_MARKETS.find((x) => x.key === current.key)!;
     const nxt = YIELD_MARKETS.find((x) => x.key === best.key)!;
     const vBal = await pub.readContract({ address: cur.v as Address, abi: VTOKEN_ABI, functionName: "balanceOf", args: [agentWallet] });
-    if (Number(vBal) === 0) { writeState("yield.json", { market: best.key }); return { acted: false, reason: "no vToken balance — state reset" }; }
+    if (Number(vBal) === 0) { await writeState("yield.json", { market: best.key }); return { acted: false, reason: "no vToken balance — state reset" }; }
     const redeemTx = await client.writeContract({ address: cur.v as Address, abi: VTOKEN_ABI, functionName: "redeem", args: [vBal] });
     await pub.waitForTransactionReceipt({ hash: redeemTx });
     let moveTx: string | null = null;
@@ -439,7 +483,7 @@ async function yieldCycle(agentWallet: Address, key: `0x${string}`, hire: HirePo
     await ensureApproval(client, agentWallet, nxt.token as Address, nxt.v as Address, parseUnits(amt.toFixed(8), nxt.dec));
     const mintTx = await client.writeContract({ address: nxt.v as Address, abi: VTOKEN_ABI, functionName: "mint", args: [parseUnits(amt.toFixed(8), nxt.dec)] });
     await pub.waitForTransactionReceipt({ hash: mintTx });
-    writeState("yield.json", { market: nxt.key });
+    await writeState("yield.json", { market: nxt.key });
     await logRun({ agent_wallet: agentWallet, category: "Yield", action: "move", status: "executed", reason: `${current.label} ${current.apr.toFixed(2)}% → ${best.label} ${best.apr.toFixed(2)}%`, details: { redeemTx, moveTx, mintTx, from: current.key, to: best.key } });
     return { acted: true, reason: `moved ${current.label} → ${best.label} (${best.apr.toFixed(2)}% APR)`, txHash: mintTx };
   }
@@ -491,7 +535,7 @@ async function healthCycle(agentWallet: Address, key: `0x${string}`, _hire: Hire
   }
   // healthy: keep monitoring. To keep the position strong while gas allows,
   // periodically strengthen collateral (real top-up, at most once per 6h).
-  const st2 = readState<{ lastTopUp?: number }>("health.json", {});
+  const st2 = await readState<{ lastTopUp?: number }>("health.json", {});
   const TOPUP_COOLDOWN_S = 6 * 3600;
   if (!st2.lastTopUp || now2() - st2.lastTopUp > TOPUP_COOLDOWN_S) {
     const native = await nativeBalance(agentWallet);
@@ -499,7 +543,7 @@ async function healthCycle(agentWallet: Address, key: `0x${string}`, _hire: Hire
     if (top >= 0.001) {
       const mintTx = await mintVWbnb(client, top);
       await pub.waitForTransactionReceipt({ hash: mintTx });
-      writeState("health.json", { lastTopUp: now2() });
+      await writeState("health.json", { lastTopUp: now2() });
       await logRun({ agent_wallet: agentWallet, category: "Health-Factor", action: "strengthen", status: "executed", reason: `HF ${hf.toFixed(2)} healthy — periodic collateral strengthen`, details: { hf, mintTx, topBnb: top } });
       return { acted: true, reason: `HF ${hf.toFixed(2)} healthy — strengthened collateral +${top.toFixed(4)} BNB`, txHash: mintTx };
     }

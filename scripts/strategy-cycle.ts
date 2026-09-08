@@ -1,7 +1,8 @@
 /**
  * STRATEGY CYCLE runner — one full loop across all 4 category agents.
  * Run:  npm run strategy:cycle
- * (The 45-min cron calls this via scripts/run-strategy.sh.)
+ * (The 15-min GitHub Actions cron runs this directly; run-strategy.sh is
+ * the local/Task-Scheduler equivalent.)
  */
 import { runCycle } from "../lib/strategies/loop";
 

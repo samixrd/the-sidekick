@@ -1,0 +1,57 @@
+name: agent-autonomy
+
+# THE SIDEKICK - the "24/7" heartbeat. Every 15 minutes, on GitHub's
+# infrastructure (not the developer's laptop):
+#   1. strategy cycle  - the 4 listed agents read live on-chain state (PCS
+#      reserves, Venus rates/positions, hire policy) and execute REAL BSC
+#      testnet transactions when their strategy fires. Every decision
+#      (executed AND skipped, with reason) is appended to `strategy_runs`.
+#   2. indexer         - resumes from its checkpoint (only new blocks), so
+#      executed txs appear on the marketplace within ~15 min, not 2h.
+#   3. auto-revoke     - expiry / spend-cap / risk-label checks run for real
+#      against every active delegation (Keystore revoke on-chain).
+#
+# Keys live in repo Secrets (Settings -> Secrets and variables -> Actions).
+# They are NEVER committed and NEVER printed; the wallets here are throwaway
+# BSC testnet strategy wallets.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: autonomy
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BSC_TESTNET_RPC_URL: ${{ secrets.BSC_TESTNET_RPC_URL }}
+      GUARD_ROUTER: ${{ secrets.GUARD_ROUTER }}
+      ERC8004_SIGNER_KEY: ${{ secrets.ERC8004_SIGNER_KEY }}
+      CAT_GRID_KEY: ${{ secrets.CAT_GRID_KEY }}
+      CAT_REBALANCE_KEY: ${{ secrets.CAT_REBALANCE_KEY }}
+      CAT_YIELD_KEY: ${{ secrets.CAT_YIELD_KEY }}
+      CAT_HEALTH_KEY: ${{ secrets.CAT_HEALTH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: treasury top-up (strategy wallets never run dry)
+        run: npm run treasury:topup
+      - name: strategy cycle (4 category agents)
+        run: npm run strategy:cycle
+      - name: index (checkpoint resume - new blocks only)
+        run: npm run index:run
+        if: always()
+      - name: auto-revoke check (expiry / cap / risk)
+        run: npm run auto:revoke
+        if: always()

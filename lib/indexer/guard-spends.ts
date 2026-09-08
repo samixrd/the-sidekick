@@ -6,12 +6,11 @@
  */
 import type { PublicClient } from "viem";
 import { createAdminSupabaseClient } from "../supabase/admin";
-import { readFileSync } from "node:fs";
+import { envGet } from "../env";
 
-// GuardRouter address from .env
+// GuardRouter address (Actions secret or local .env)
 function guardRouterAddress(): `0x${string}` {
-  const env = readFileSync(process.cwd() + "/.env", "utf8");
-  return (env.match(/^GUARD_ROUTER="?([^"\r\n]+)/m)?.[1] ?? "") as `0x${string}`;
+  return envGet("GUARD_ROUTER") as `0x${string}`;
 }
 
 const SWAP_FORWARDED_TOPIC = "0x624d6b134aea03ea59dba6703ef0f443f00c2a4dba51cd86beb9367f275d579c" as const; // keccak256("SwapForwarded(bytes32,address,address[],uint256,uint256)")

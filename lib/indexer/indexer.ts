@@ -7,7 +7,8 @@
  *   - insert one snapshot row into `agent_snapshots` per wallet (INSERT-only)
  *
  * Run on demand:   npm run index:run
- * Schedule every 2h via the cron (see scripts/run-indexer.sh + cron config).
+ * Scheduled every 15 min via GitHub Actions (.github/workflows/agent-autonomy.yml),
+ * resuming from `indexer_checkpoints` high-watermarks (migration 0011).
  *
  * Persistence is through the Supabase ADMIN client (service role), bypassing RLS
  * intentionally — the indexer is the privileged writer. Never run in a browser.
@@ -16,24 +17,15 @@
 import { createPublicClient, http } from "viem";
 import { bscTestnet } from "viem/chains";
 import type { Address } from "viem";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { CHAIN_ID, RPC_URLS, LOGS_CHUNK, DEFAULT_WINDOW_BLOCKS } from "./config";
 import { scanWalletActivity, type IndexedEvent } from "./decode";
 import { createAdminSupabaseClient } from "../supabase/admin";
 import { scanGuardSpends, persistGuardSpends, updateDelegationAmountUsed } from "./guard-spends";
 import { scoreAllWallets } from "../scoring/engine";
 
-// Load .env (override ambient vars) so a standalone `tsx` run is deterministic.
-const envPath = resolve(process.cwd(), ".env");
-try {
-  for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
-    const m = /^\s*([A-Z0-9_]+)\s*=\s*"?([^"\r\n]*)"?\s*$/.exec(line);
-    if (m) process.env[m[1]] = m[2].replace(/\\r$/g, "").trim();
-  }
-} catch {
-  /* no .env */
-}
+// Deterministic env: ambient (CI secrets) wins, local .env fills gaps.
+import { loadEnv } from "../env";
+loadEnv();
 
 // Config
 const FROM_BLOCK_OVERRIDE = BigInt(process.env.INDEXER_FROM_BLOCK ?? "0");
@@ -58,6 +50,35 @@ function makeClient() {
 function fromBlockOverride(toBlock: bigint): bigint {
   if (FROM_BLOCK_OVERRIDE > 0n) return FROM_BLOCK_OVERRIDE;
   return toBlock > DEFAULT_WINDOW_BLOCKS ? toBlock - DEFAULT_WINDOW_BLOCKS : 0n;
+}
+
+/**
+ * High-watermark checkpoints (indexer_checkpoints, migration 0011): resume from
+ * last_block+1 so a frequent (15-min) cron only scans the blocks mined since
+ * the previous run — near-real-time visibility without re-walking history.
+ * Falls back to the rolling-window floor on a cold start or if the stored mark
+ * is stale/invalid. Insert-then-update upsert keeps it safe on first run.
+ */
+async function checkpointFrom(admin: ReturnType<typeof createAdminSupabaseClient>, wallet: string, toBlock: bigint): Promise<bigint> {
+  const floor = fromBlockOverride(toBlock); // window fallback + explicit override
+  if (FROM_BLOCK_OVERRIDE > 0n) return FROM_BLOCK_OVERRIDE;
+  try {
+    const { data } = await admin.from("indexer_checkpoints").select("last_block").eq("wallet", wallet).maybeSingle();
+    const last = data ? BigInt(String(data.last_block)) : 0n;
+    if (last > 0n && last + 1n <= toBlock) {
+      // never scan more than the window floor back (publicnode prunes old logs)
+      return last + 1n > floor ? last + 1n : floor;
+    }
+  } catch { /* table missing -> window mode */ }
+  return floor;
+}
+async function saveCheckpoint(admin: ReturnType<typeof createAdminSupabaseClient>, wallet: string, block: bigint): Promise<void> {
+  try {
+    await admin.from("indexer_checkpoints").upsert(
+      { wallet, last_block: String(block), updated_at: new Date().toISOString() },
+      { onConflict: "wallet" },
+    );
+  } catch { /* best-effort; next run falls back to the window */ }
 }
 
 /** Resolve block timestamps for a set of events via cached getBlock. */
@@ -130,13 +151,9 @@ async function main() {
   }
   console.log(`tracking ${tracked.length} wallet(s)`);
 
-  // ── 2. scan a rolling window per wallet (dedupe on insert) ──
+  // ── 2. scan per wallet from its high-watermark (rolling window as floor) ──
   const toBlock = latestBlock - LATENCY_BLOCKS;
   const tsCache = new Map<string, string>();
-
-  // Bound the scan to a rolling window (publicnode prunes old history). Allows
-  // an explicit backfill override: INDEXER_FROM_BLOCK=<block> forces a start.
-  const windowFrom = fromBlockOverride(toBlock);
 
   for (const wallet of tracked) {
     try {
@@ -144,7 +161,7 @@ async function main() {
 
       // chunked scan to survive RPC range limits
       let localEvents: IndexedEvent[] = [];
-      let from = windowFrom;
+      let from = await checkpointFrom(admin, wallet, toBlock);
       while (from <= toBlock) {
         let to = from + LOGS_CHUNK - 1n;
         if (to > toBlock) to = toBlock;
@@ -158,6 +175,7 @@ async function main() {
         if (to === toBlock) break;
         from = to + 1n;
       }
+      await saveCheckpoint(admin, wallet, toBlock);
 
       // dedupe locally by tx+type+token_in
       const seenDedupe = new Set<string>();
@@ -241,7 +259,9 @@ async function main() {
 
   // ── 4b. Guard Router spend scan -> guard_spends + recompute amount_used ──
   try {
-    const spends = await scanGuardSpends(client, windowFrom, toBlock);
+    const guardFrom = await checkpointFrom(admin, "_guard", toBlock);
+    const spends = await scanGuardSpends(client, guardFrom, toBlock);
+    await saveCheckpoint(admin, "_guard", toBlock);
     const spendInserted = await persistGuardSpends(spends);
     const delegationsUpdated = await updateDelegationAmountUsed();
     console.log(`  guard_spends indexed: ${spendInserted} | delegations amount_used updated: ${delegationsUpdated}`);
