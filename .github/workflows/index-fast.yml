@@ -1,0 +1,40 @@
+name: index-fast
+
+# THE SIDEKICK — chain indexer every 5 minutes. Resumes from per-wallet
+# high-watermark checkpoints (`indexer_checkpoints`), so each run only scans
+# the blocks mined since the last one (seconds of work). Agents ALSO
+# self-index their own txs the moment the receipt confirms (strategy loop),
+# so this cron is the catch-up path for user txs + anything missed.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: indexer
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BSC_TESTNET_RPC_URL: ${{ secrets.BSC_TESTNET_RPC_URL }}
+      GUARD_ROUTER: ${{ secrets.GUARD_ROUTER }}
+      ERC8004_SIGNER_KEY: ${{ secrets.ERC8004_SIGNER_KEY }}
+      CAT_GRID_KEY: ${{ secrets.CAT_GRID_KEY }}
+      CAT_REBALANCE_KEY: ${{ secrets.CAT_REBALANCE_KEY }}
+      CAT_YIELD_KEY: ${{ secrets.CAT_YIELD_KEY }}
+      CAT_HEALTH_KEY: ${{ secrets.CAT_HEALTH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: index (checkpoint resume - new blocks only)
+        run: npm run index:run

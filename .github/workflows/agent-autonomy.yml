@@ -6,9 +6,9 @@ name: agent-autonomy
 #      reserves, Venus rates/positions, hire policy) and execute REAL BSC
 #      testnet transactions when their strategy fires. Every decision
 #      (executed AND skipped, with reason) is appended to `strategy_runs`.
-#   2. indexer         - resumes from its checkpoint (only new blocks), so
-#      executed txs appear on the marketplace within ~15 min, not 2h.
-#   3. auto-revoke     - expiry / spend-cap / risk-label checks run for real
+#   2. auto-revoke     - expiry / spend-cap / risk-label checks run for real
+#      (indexing lives in index-fast.yml every 5 min + agent self-index at
+#       execution time, so executed txs are visible within seconds/minutes)
 #      against every active delegation (Keystore revoke on-chain).
 #
 # Keys live in repo Secrets (Settings -> Secrets and variables -> Actions).
@@ -49,9 +49,6 @@ jobs:
         run: npm run treasury:topup
       - name: strategy cycle (4 category agents)
         run: npm run strategy:cycle
-      - name: index (checkpoint resume - new blocks only)
-        run: npm run index:run
-        if: always()
       - name: auto-revoke check (expiry / cap / risk)
         run: npm run auto:revoke
         if: always()

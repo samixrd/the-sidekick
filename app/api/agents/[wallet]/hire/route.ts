@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createDelegation, resolveAgentKey, type HireStep } from "@/lib/hire/create-delegation";
+import { verifyHireNow } from "@/lib/strategies/loop";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,16 @@ export async function POST(req: Request, { params }: { params: { wallet: string 
           agentWallet, spendCapTbnb: Number(spendCapTbnb), tokenScope: tokenScope.map((t: string) => t as `0x${string}`),
           minLiquidity: Number(minLiquidity), days: Number(days), user: String(user), agentKey, onStep,
         });
-        send({ step: "done", done: true, result });
+        // INSTANT PROOF: the agent acts through YOUR session right now — one
+        // small guarded swap via GuardRouter (same code path as the 15-min loop),
+        // self-indexed so it shows in the feed within seconds of this stream.
+        await send({ step: "instant-verify", label: "Agent executing its first guarded action through your session key…", done: false });
+        let verified: { txHash: string; routed: "guarded" | "base" } | null = null;
+        try { verified = await verifyHireNow(agentWallet); } catch { /* loop's per-hire verify catches up within 15 min */ }
+        await send(verified
+          ? { step: "instant-verify", label: `Guarded action executed through your session (${verified.routed})`, txHash: verified.txHash, done: true }
+          : { step: "instant-verify", label: "First guarded action scheduled for the next cycle (≤15 min)", done: true });
+        send({ step: "done", done: true, result, verifiedTx: verified?.txHash ?? null });
         controller.close();
       } catch (e: any) {
         const msg = e?.shortMessage || e?.message || "unknown error";

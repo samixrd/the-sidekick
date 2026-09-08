@@ -214,7 +214,7 @@ export async function computeAllMetrics(): Promise<MetricsResult[]> {
 
     results.push({
       wallet, tokenId, category, txCount: evs.length,
-      freshness: { lastActionAgoMin, lastActionAt: lastAt, cadenceNote: "indexer + strategy loop run every 15 min (GitHub Actions)" },
+      freshness: { lastActionAgoMin, lastActionAt: lastAt, cadenceNote: "agents self-index on execution; chain sweep every 5 min (GitHub Actions)" },
       activity,
       pnl: {
         realized7d, realizedLifetime: closedTrades > 0 ? Math.round(realizedLifetime * 1000) / 1000 : null,

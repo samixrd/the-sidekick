@@ -24,6 +24,7 @@ import { createPublicClient, createWalletClient, http, formatEther, parseUnits, 
 import { bscTestnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { selfIndexTxWindow } from "../indexer/self-index";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -583,6 +584,39 @@ async function mintVWbnb(client: ReturnType<typeof walletFor>, bnb: number): Pro
 }
 
 // ── the cycle ─────────────────────────────────────────────────────────────
+/**
+ * IMMEDIATE guarded verification for a brand-new hire (called synchronously
+ * from the hire flow, seconds after GuardRouter.createHire confirms):
+ * execute one small WBNB→USDT swap THROUGH this hire's session so the judge
+ * sees their own on-chain, policy-enforced action before the page even closes.
+ * Same code path the cron uses (executeSwap guarded branch) + self-index.
+ * Returns null when the agent has no key/no hire/insufficient WBNB/USDT out
+ * of scope — never throws into the hire stream.
+ */
+export async function verifyHireNow(agentWallet: string): Promise<{ txHash: string; routed: "guarded" | "base" } | null> {
+  const wallet = agentWallet.toLowerCase() as Address;
+  const key = agentKey(wallet);
+  if (!key) return null;
+  let hire: HirePolicy | null = null;
+  try { hire = await activeHireFor(wallet); } catch { return null; }
+  if (!hire?.hireId) return null;
+  try {
+    const wbnbBal = await tokenBalance(WBNB as Address, wallet);
+    if (wbnbBal < 0.0004) return null;
+    const { txHash, routed } = await executeSwap({ agentWallet: wallet, key, tokenIn: WBNB as Address, tokenOut: USDT as Address, amountIn: parseUnits("0.0003", 18), hire, label: "hire-instant-verify" });
+    const state = await readState<{ anchor?: number; verifiedGuarded?: boolean; verifiedForHire?: string }>("grid.json", {});
+    await writeState("grid.json", { ...state, verifiedGuarded: true, verifiedForHire: hire.hireId });
+    await logRun({ agent_wallet: wallet, category: "Grid Trading", action: "verify", status: "executed", reason: `guarded swap executed instantly through your hire ${hire.delegId} (session + GuardRouter enforce scope/cap on-chain)`, details: { txHash, routed, hireId: hire.hireId } });
+    try {
+      const rec = await pub.getTransactionReceipt({ hash: txHash as `0x${string}` });
+      if (rec.status === "success") await selfIndexTxWindow(supabase() as unknown as { from: (t: string) => any }, pub, wallet, rec.blockNumber);
+    } catch { /* cron indexer catches up */ }
+    return { txHash, routed };
+  } catch (e) {
+    console.error("  instant verify skipped:", (e as Error).message.slice(0, 120));
+    return null;
+  }
+}
 export interface CycleResult {
   wallet: string; category: string; hireLinked: boolean;
   acted: boolean; reason: string; txHash?: string; error?: string;
@@ -611,6 +645,19 @@ export async function runCycle(): Promise<CycleResult[]> {
       else if (category === "Yield") r = await yieldCycle(wallet, key, hire);
       else if (category === "Health-Factor") r = await healthCycle(wallet, key, hire);
       else continue;
+      // SELF-INDEX: the moment our own tx confirmed, its events go into `events`
+      // — judge-visible activity is seconds old, not "until the next cron pass".
+      if (r.acted && r.txHash) {
+        try {
+          const rec = await pub.getTransactionReceipt({ hash: r.txHash as `0x${string}` });
+          if (rec.status === "success") {
+            const n = await selfIndexTxWindow(db as unknown as { from: (t: string) => any }, pub, wallet, rec.blockNumber);
+            if (n > 0) console.log(`  self-indexed ${n} event(s) for ${wallet.slice(0, 10)}… (block ${rec.blockNumber})`);
+          }
+        } catch (e) {
+          console.error(`  self-index skipped (${wallet.slice(0, 10)}…):`, (e as Error).message.slice(0, 80));
+        }
+      }
       out.push({ wallet, category, hireLinked: !!hire, acted: r.acted, reason: r.reason, txHash: r.txHash });
     } catch (e) {
       const msg = (e as Error).message?.slice(0, 300) ?? String(e);

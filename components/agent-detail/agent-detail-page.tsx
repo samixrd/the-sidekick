@@ -50,6 +50,7 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
       "create-hire": { label: "GuardRouter createHire", status: "pending" },
       "erc8183-job": { label: "ERC-8183 job", status: "pending" },
       "persist": { label: "Persist", status: "pending" },
+      "instant-verify": { label: "First guarded action through your session", status: "pending" },
     },
     error: null,
     result: null,
@@ -105,6 +106,7 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
       "create-hire": { label: "GuardRouter createHire", status: "pending" },
       "erc8183-job": { label: "ERC-8183 job", status: "pending" },
       "persist": { label: "Persist", status: "pending" },
+      "instant-verify": { label: "First guarded action through your session", status: "pending" },
     }, error: null, result: null });
 
     try {
@@ -233,7 +235,7 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
           <StatCell label="Age" value={ageDaysFromFirst !== null ? `${ageDaysFromFirst.toFixed(1)}d` : "—"} sub="since first indexed tx" />
           <StatCell label="Total tx" value={metric?.txCount ?? 0} sub="all events" />
           <StatCell label="Category benchmark" value={peers === 0 ? "—" : fmtUsd(ownReturn)} sub={peers === 0 ? "only agent in this category — nothing to benchmark yet" : `vs ${peers} peer(s): ${fmtUsd(catAvg)}`} />
-          <StatCell label="Freshness" value={fmtAgoMin(metric?.freshness.lastActionAgoMin)} sub="chain indexed every 15 min" />
+          <StatCell label="Freshness" value={fmtAgoMin(metric?.freshness.lastActionAgoMin)} sub="self-indexed live; sweep every 5 min" />
           <StatCell
             label="Status"
             value={metric?.activity?.status ?? "Idle"}
