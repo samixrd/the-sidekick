@@ -486,7 +486,10 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
             ) : (
               <div className="mt-auto space-y-3 pt-6">
                 {!connectedAddr ? (
-                  <button onClick={handleConnect} className="w-full rounded border border-accent bg-accent py-2.5 text-sm font-semibold text-on-accent hover:bg-accent-strong">Connect Wallet</button>
+                  <>
+                    <button onClick={handleConnect} className="w-full rounded border border-accent bg-accent py-2.5 text-sm font-semibold text-on-accent hover:bg-accent-strong">Connect Wallet</button>
+                    <p className="text-[10px] leading-snug text-faint">MetaMask may warn about <span className="font-mono">*.vercel.app</span> (heuristic block on free hosting — this domain is not on the public phishing list). Connecting is read-only: address + testnet network switch. Hiring requests no signatures and no transactions from your wallet.</p>
+                  </>
                 ) : (
                   <>
                     <button onClick={() => setCustomize((v) => !v)} className="w-full rounded border border-border py-2 text-sm text-muted hover:bg-surface-raised">{customize ? "Hide customize" : "Customize"}</button>

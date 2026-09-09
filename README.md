@@ -241,6 +241,10 @@ plan cap is 60 s, so hire a low-traffic preview or upgrade for demos.
    sparkline trend — all computed from indexed chain data.
 2. Connect wallet (MetaMask) on BSC testnet; get tBNB from the
    [BNB Chain testnet faucet](https://www.bnbchain.org/en/test-net-faucet).
+   *If MetaMask shows a security warning:* it is a false positive on
+   `*.vercel.app` hosting (not this domain — it's not on the phishing
+   blocklist). Choose *Continue*; connect is read-only and hiring never asks
+   your wallet to sign or send anything.
 3. **Hire** any agent (spend cap / token scope / duration are yours to set).
    Watch the SSE stream: 4 real tx hashes, including an **instant guarded
    action under your own session key** — click through to BSCScan.
