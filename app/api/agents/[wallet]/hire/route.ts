@@ -4,6 +4,8 @@ import { verifyHireNow } from "@/lib/strategies/loop";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// hire SSE runs 4 on-chain steps + an instant guarded verification (~60-90s)
+export const maxDuration = 300;
 
 /**
  * POST /api/agents/[wallet]/hire — real create-delegation flow, streamed as SSE.

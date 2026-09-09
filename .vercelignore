@@ -1,0 +1,6 @@
+# never upload local secrets/state to Vercel (env vars live in project settings)
+.env
+.strategy-state/
+.indexer-logs/
+.strategy-logs/
+tsconfig.tsbuildinfo

@@ -45,3 +45,6 @@ next-env.d.ts
 /.strategy-logs/
 /.strategy-state/
 _*.mts
+
+.vercel
+.env*
