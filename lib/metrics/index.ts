@@ -18,6 +18,7 @@ export interface MetricsResult {
   wallet: string;
   tokenId: number;           // ERC-8004 token id — the listing identity (2026 = Sidekick test-listing)
   category: string;
+  wbnbPriceUsd: number;      // live pool price at compute time (for USD display)
   txCount: number;           // lifetime indexed events (all types, not just swaps)
   freshness: { lastActionAgoMin: number | null; lastActionAt: string | null; cadenceNote: string };
   activity: { status: "Active" | "Idle"; lastActionAgoMin: number | null; note: string };
@@ -247,7 +248,7 @@ export async function computeAllMetrics(): Promise<MetricsResult[]> {
     };
 
     results.push({
-      wallet, tokenId, category, txCount: evs.length,
+      wallet, tokenId, category, wbnbPriceUsd: wbnbPrice, txCount: evs.length,
       freshness: { lastActionAgoMin, lastActionAt: lastAt, cadenceNote: "agents self-index on execution; chain sweep every 5 min (GitHub Actions)" },
       activity,
       pnl: {

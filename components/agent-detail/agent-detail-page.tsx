@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { AgentDetail } from "./data";
 import { connectWallet, readHireStream, shortAddr, switchToBscTestnet } from "./wallet";
 import {
+  CATEGORY_WORK,
   fmtUsd, fmtAgoMin, eventAction, shortToken, shortHash,
   tokenScopeList, bscscanTxUrl, bscscanAddressUrl,
 } from "./data";
@@ -190,6 +191,7 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
   const trend = data.trend ?? [];
   const events = data.events ?? [];
   const hires = data.hires ?? [];
+  const price = metric?.wbnbPriceUsd ?? 0; // live pool price for USD renderings
   const tokenScope = tokenScopeList(data.hires?.[0]?.token_scope ?? null);
   const expiry = data.hires?.[0]?.expiry ?? null;
   const expiryDate = expiry ? new Date(expiry * 1000).toISOString().slice(0, 10) : null;
@@ -386,15 +388,28 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
             <p className="text-[11px] italic text-faint">No hire records yet — this agent has not been hired.</p>
           ) : (
             <ul className="divide-y divide-border text-xs">
-              {hires.map((h) => (
-                <li key={h.id} className="flex flex-wrap items-center gap-2 py-2">
-                  <span className="rounded border border-border bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] uppercase text-foreground">{h.status}</span>
-                  <span className="font-mono text-[10px] text-faint">{h.erc8183_job_id ? `job #${h.erc8183_job_id}` : "no job"}</span>
-                  <span className="font-mono text-[10px] text-faint">cap {fmtUsd(h.spend_cap)}</span>
-                  <span className="font-mono text-[10px] text-faint">used {fmtUsd(h.amount_used)}</span>
-                  <a href={bscscanTxUrl(h.erc8183_tx_hash)} target="_blank" rel="noreferrer" className="ml-auto font-mono text-[10px] text-faint underline-offset-2 hover:text-foreground hover:underline">{shortHash(h.erc8183_tx_hash)}</a>
-                </li>
-              ))}
+              {hires.map((h) => {
+                const usedPct = h.spend_cap && h.spend_cap > 0 ? Math.min(100, (Number(h.amount_used ?? 0) / Number(h.spend_cap)) * 100) : null;
+                return (
+                  <li key={h.id} className="py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${h.status === "active" ? "border-accent/40 bg-accent-faint text-accent" : "border-border text-faint"}`}>{h.status}</span>
+                      <span className="font-mono text-[10px] text-faint">{h.erc8183_job_id ? `job #${h.erc8183_job_id}` : "no job"}</span>
+                      <span className="font-mono text-[10px] text-faint" title={`${h.spend_cap} tBNB/day, valued at live pool price`}>cap {fmtUsd(Number(h.spend_cap) * price)} ≈ {h.spend_cap} tBNB</span>
+                      <span className="font-mono text-[10px] text-faint" title="sum of SwapForwarded amounts indexed from the GuardRouter">used {fmtUsd(Number(h.amount_used ?? 0) * price)}</span>
+                      <a href={bscscanTxUrl(h.erc8183_tx_hash)} target="_blank" rel="noreferrer" className="ml-auto font-mono text-[10px] text-faint underline-offset-2 hover:text-foreground hover:underline">{shortHash(h.erc8183_tx_hash)}</a>
+                    </div>
+                    {usedPct !== null && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-raised">
+                          <div className={`h-full ${usedPct >= 90 ? "bg-red-500" : "bg-accent"}`} style={{ width: `${Math.max(2, usedPct)}%` }} />
+                        </div>
+                        <span className="font-mono text-[10px] text-faint">{usedPct.toFixed(0)}% of cap used</span>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Panel>
@@ -413,10 +428,25 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
             </div>
 
             <div className="mt-4 space-y-3 text-sm">
-              <div><span className="text-faint">Spend cap</span><div className="font-mono tabular text-lg">{fmtUsd(0.01)}</div></div>
+              {(() => {
+                const work = CATEGORY_WORK[data.listing?.category ?? ""] ?? null;
+                return work ? (
+                  <div className="rounded border border-border bg-background/40 p-3">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-faint">What this agent does</div>
+                    <div className="mt-1 text-[13px] font-semibold text-foreground">{work.title}</div>
+                    <p className="mt-1 text-[11px] leading-snug text-muted">{work.what}</p>
+                  </div>
+                ) : null;
+              })()}
+              <div><span className="text-faint">Spend cap / day</span><div className="font-mono tabular text-lg">{hireCfg.spendCapTbnb} tBNB ≈ {price ? fmtUsd(hireCfg.spendCapTbnb * price, 2) : "—"}<span className="ml-2 text-[10px] text-faint">live pool price; GuardRouter enforces on-chain</span></div></div>
               <div><span className="text-faint">Token scope</span><div className="mt-1 flex flex-wrap gap-1.5">{tokenScope.length ? tokenScope.map((t) => <span key={t} className="rounded border border-border bg-surface-raised px-1.5 py-0.5 font-mono text-[10px]">{shortToken(t)}</span>) : <span className="text-[11px] italic text-faint">WBNB + USDT (default)</span>}</div></div>
-              <div><span className="text-faint">Min liquidity</span><div className="font-mono tabular text-lg">{data.hires?.[0]?.min_liquidity ?? 1}</div></div>
-              <div><span className="text-faint">Expiry</span><div className="font-mono tabular text-lg">{expiryDate ?? "7 days"}</div></div>
+              <div><span className="text-faint">Min liquidity</span><div className="font-mono tabular text-lg">{hireCfg.minLiquidity}<span className="ml-2 text-[10px] text-faint">swaps revert below this pool size</span></div></div>
+              <div><span className="text-faint">Expiry</span><div className="font-mono tabular text-lg">{hireCfg.days} days<span className="ml-2 text-[10px] text-faint">authority auto-dies; revocable any time</span></div></div>
+              <div className="rounded border border-accent/40 bg-accent-faint p-3 text-[11px] leading-snug text-muted">
+                <span className="font-semibold text-foreground">Your wallet pays nothing and deposits nothing.</span>{" "}
+                {(() => { const w = CATEGORY_WORK[data.listing?.category ?? ""]; return w ? w.money : "The agent trades its own capital; your policy bounds what it may do under your delegation."; })()}
+                {" "}Cost to you: only gas for the hire transactions (~0.001 tBNB, from the faucet).
+              </div>
             </div>
 
             {customize && (

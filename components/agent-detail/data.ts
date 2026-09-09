@@ -72,6 +72,30 @@ export interface AgentDetail {
   listing: ListingRow | null;
 }
 
+/** What each listed category agent actually does (mirrors lib/strategies/loop). */
+export const CATEGORY_WORK: Record<string, { title: string; what: string; money: string }> = {
+  "Grid Trading": {
+    title: "Range-trades BNB/USDT on PancakeSwap",
+    what: "Buys WBNB when the pool price falls >4% under its anchor, sells when it rises >4% above, then re-anchors. Every order routes through your session: outside your token scope or above your daily cap, it reverts on-chain.",
+    money: "Trades its own WBNB/USDT working capital — never funds from your wallet. Your cap bounds how much it may rotate per day under YOUR delegation.",
+  },
+  Rebalancing: {
+    title: "Runs a 50/50 BNB/USDT liquidity position",
+    what: "Provides liquidity on the real PancakeSwap pair; when price drifts >20% from its center, it removes and re-adds the position to re-target 50/50.",
+    money: "Its own LP capital; your policy scopes which actions it may take for you and up to what daily value.",
+  },
+  Yield: {
+    title: "Rotates stable/collateral yield on Venus",
+    what: "Reads live Venus supply APRs (vWBNB, vUSDC), and when another usable market beats the current one by >0.5pp, redeems → swaps → re-supplies.",
+    money: "Its own deposits; the cap bounds value moved under your delegation per day.",
+  },
+  "Health-Factor": {
+    title: "Manages a Venus loan against collateral",
+    what: "Holds WBNB collateral, borrows USDC, recomputes health factor from the Venus oracle each cycle; tops up collateral when HF drops under 1.5.",
+    money: "Its own position; your policy governs what it may do in your hire's name.",
+  },
+};
+
 // ── honest-null formatters ────────────────────────────────────────
 export function fmtUsd(v: number | null | undefined, digits = 4): string {
   if (v === null || v === undefined) return "—";
