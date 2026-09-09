@@ -193,8 +193,6 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
   const hires = data.hires ?? [];
   const price = metric?.wbnbPriceUsd ?? 0; // live pool price for USD renderings
   const tokenScope = tokenScopeList(data.hires?.[0]?.token_scope ?? null);
-  const expiry = data.hires?.[0]?.expiry ?? null;
-  const expiryDate = expiry ? new Date(expiry * 1000).toISOString().slice(0, 10) : null;
 
   const actionTags = recent12h?.byType ?? {};
 
@@ -397,6 +395,7 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
                       <span className="font-mono text-[10px] text-faint">{h.erc8183_job_id ? `job #${h.erc8183_job_id}` : "no job"}</span>
                       <span className="font-mono text-[10px] text-faint" title={`${h.spend_cap} tBNB/day, valued at live pool price`}>cap {fmtUsd(Number(h.spend_cap) * price)} ≈ {h.spend_cap} tBNB</span>
                       <span className="font-mono text-[10px] text-faint" title="sum of SwapForwarded amounts indexed from the GuardRouter">used {fmtUsd(Number(h.amount_used ?? 0) * price)}</span>
+                      {h.expiry ? <span className="font-mono text-[10px] text-faint">expires {new Date(h.expiry * 1000).toISOString().slice(0, 10)}</span> : null}
                       <a href={bscscanTxUrl(h.erc8183_tx_hash)} target="_blank" rel="noreferrer" className="ml-auto font-mono text-[10px] text-faint underline-offset-2 hover:text-foreground hover:underline">{shortHash(h.erc8183_tx_hash)}</a>
                     </div>
                     {usedPct !== null && (
