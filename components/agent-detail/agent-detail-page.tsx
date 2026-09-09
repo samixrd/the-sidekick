@@ -42,6 +42,10 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
   const [connectedAddr, setConnectedAddr] = useState<string | null>(null);
   const [connectedChainId, setConnectedChainId] = useState<number | null>(null);
   const [customize, setCustomize] = useState(false);
+  // hire policy values (customizable; defaults below). minLiquidity is in
+  // whole tokens — the GuardRouter reverts swaps while the live pool side
+  // holds less than this, so keep it under the BNB/USDT pool's real liquidity.
+  const [hireCfg, setHireCfg] = useState({ spendCapTbnb: 0.01, minLiquidity: 1, days: 7 });
   // hire flow state
   const [flow, setFlow] = useState<{ running: boolean; steps: Record<string, { label: string; status: "pending" | "active" | "done" | "error"; txHash?: string; jobId?: string }>; error: string | null; result: any | null }>({
     running: false,
@@ -117,10 +121,10 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
         : ["0xae13d989dac2f0debff460ac112a837c89baa7cd", "0x337610d27c682e347c9cd60bd4b3b107c9d34ddd"];
       const body = {
         user: connectedAddr,
-        spendCapTbnb: 0.01,
+        spendCapTbnb: hireCfg.spendCapTbnb,
         tokenScope,
-        minLiquidity: 1,
-        days: 7,
+        minLiquidity: hireCfg.minLiquidity,
+        days: hireCfg.days,
         agentId: data.listing ? `Hermes-${data.listing.category}` : wallet,
         agentName: name,
       };
@@ -417,10 +421,19 @@ export function AgentDetailPage({ wallet }: { wallet: string }) {
 
             {customize && (
               <div className="mt-4 rounded border border-border bg-background/40 p-3 space-y-2">
-                <p className="text-[11px] text-faint">Customize the spend cap, token scope, min-liquidity threshold, and expiry here.</p>
-                {(["Spend cap", "Token scope", "Min liquidity", "Expiry"] as const).map((f) => (
-                  <input key={f} placeholder={f} className="w-full rounded border border-border bg-surface px-2 py-1.5 text-xs text-foreground placeholder:text-faint" />
-                ))}
+                <p className="text-[11px] text-faint">This policy binds the agent&apos;s session key on-chain — it cannot be overridden later by the agent.</p>
+                <label className="block text-[10px] uppercase tracking-[0.14em] text-faint">Spend cap (tBNB / day)</label>
+                <input type="number" step="0.001" min="0.001" value={hireCfg.spendCapTbnb}
+                  onChange={(e) => setHireCfg((c) => ({ ...c, spendCapTbnb: Math.max(0.001, Number(e.target.value) || 0.01) }))}
+                  className="w-full rounded border border-border bg-surface px-2 py-1.5 text-xs text-foreground" />
+                <label className="block text-[10px] uppercase tracking-[0.14em] text-faint">Min pool liquidity (tokens) — swaps revert below this</label>
+                <input type="number" step="0.1" min="0" value={hireCfg.minLiquidity}
+                  onChange={(e) => setHireCfg((c) => ({ ...c, minLiquidity: Math.max(0, Number(e.target.value) || 0) }))}
+                  className="w-full rounded border border-border bg-surface px-2 py-1.5 text-xs text-foreground" />
+                <label className="block text-[10px] uppercase tracking-[0.14em] text-faint">Delegation length (days)</label>
+                <input type="number" step="1" min="1" max="30" value={hireCfg.days}
+                  onChange={(e) => setHireCfg((c) => ({ ...c, days: Math.min(30, Math.max(1, Number(e.target.value) || 7)) }))}
+                  className="w-full rounded border border-border bg-surface px-2 py-1.5 text-xs text-foreground" />
               </div>
             )}
 

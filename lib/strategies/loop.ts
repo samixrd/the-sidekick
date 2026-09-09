@@ -312,7 +312,7 @@ async function executeSwap(opts: {
 // ── 1) GRID: buy low / sell high around an anchored price ─────────────────
 async function gridCycle(agentWallet: Address, key: `0x${string}`, hire: HirePolicy | null) {
   const price = await wbnbPriceUsdt();
-  const state = await readState<{ anchor?: number; verifiedGuarded?: boolean; verifiedForHire?: string }>("grid.json", {});
+  const state = await readState<{ anchor?: number; verifiedGuarded?: boolean; verifiedForHire?: string; failedForHire?: string }>("grid.json", {});
   if (!state.anchor || price <= 0) {
     await writeState("grid.json", { ...state, anchor: price });
     await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "anchor", status: "skipped", reason: "no anchor — initialized", details: { anchorPrice: price } });
@@ -325,13 +325,23 @@ async function gridCycle(agentWallet: Address, key: `0x${string}`, hire: HirePol
   // executes through THAT hire's session + GuardRouter (small sell inside cap).
   // The proof is bound to the hireId, so every hire gets its own on-chain,
   // session-enforced action attributed to it — verifiable, not staged.
-  if (hire && hire.hireId && state.verifiedForHire !== hire.hireId) {
+  if (hire && hire.hireId && state.verifiedForHire !== hire.hireId && state.failedForHire !== hire.hireId) {
     const wbnbBal = await tokenBalance(WBNB as Address, agentWallet);
     if (wbnbBal >= 0.0004) {
-      const { txHash, routed } = await executeSwap({ agentWallet, key, tokenIn: WBNB as Address, tokenOut: USDT as Address, amountIn: parseUnits("0.0003", 18), hire, label: "grid-verify" });
-      await writeState("grid.json", { ...state, verifiedGuarded: true, verifiedForHire: hire.hireId });
-      await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "verify", status: "executed", reason: `guarded routing verified through hire ${hire.delegId} (session + GuardRouter, on-chain scope/cap enforced)`, details: { txHash, routed, hireId: hire.hireId } });
-      return { acted: true, reason: `guarded path verified (${routed}) for your hire ${hire.delegId}`, txHash };
+      try {
+        const { txHash, routed } = await executeSwap({ agentWallet, key, tokenIn: WBNB as Address, tokenOut: USDT as Address, amountIn: parseUnits("0.0003", 18), hire, label: "grid-verify" });
+        await writeState("grid.json", { ...state, verifiedGuarded: true, verifiedForHire: hire.hireId, failedForHire: undefined });
+        await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "verify", status: "executed", reason: `guarded routing verified through hire ${hire.delegId} (session + GuardRouter, on-chain scope/cap enforced)`, details: { txHash, routed, hireId: hire.hireId } });
+        return { acted: true, reason: `guarded path verified (${routed}) for your hire ${hire.delegId}`, txHash };
+      } catch (e) {
+        // The hire's policy rejects the action (e.g. minLiquidity above real
+        // pool liquidity). That's the guard working — log it honestly ONCE and
+        // fall through to normal strategy logic instead of error-cycling.
+        const msg = (e as Error).message?.slice(0, 200) ?? String(e);
+        await writeState("grid.json", { ...state, failedForHire: hire.hireId });
+        await logRun({ agent_wallet: agentWallet, category: "Grid Trading", action: "verify", status: "skipped", reason: `hire ${hire.delegId} policy blocked the verify swap on-chain: ${msg}`, details: { hireId: hire.hireId, error: msg } });
+        if (!state.anchor) return { acted: false, reason: `verify blocked by hire policy: ${msg.slice(0, 90)}` };
+      }
     }
   }
   if (price >= low && price <= high) {
@@ -604,7 +614,7 @@ export async function verifyHireNow(agentWallet: string): Promise<{ txHash: stri
     const wbnbBal = await tokenBalance(WBNB as Address, wallet);
     if (wbnbBal < 0.0004) return null;
     const { txHash, routed } = await executeSwap({ agentWallet: wallet, key, tokenIn: WBNB as Address, tokenOut: USDT as Address, amountIn: parseUnits("0.0003", 18), hire, label: "hire-instant-verify" });
-    const state = await readState<{ anchor?: number; verifiedGuarded?: boolean; verifiedForHire?: string }>("grid.json", {});
+    const state = await readState<{ anchor?: number; verifiedGuarded?: boolean; verifiedForHire?: string; failedForHire?: string }>("grid.json", {});
     await writeState("grid.json", { ...state, verifiedGuarded: true, verifiedForHire: hire.hireId });
     await logRun({ agent_wallet: wallet, category: "Grid Trading", action: "verify", status: "executed", reason: `guarded swap executed instantly through your hire ${hire.delegId} (session + GuardRouter enforce scope/cap on-chain)`, details: { txHash, routed, hireId: hire.hireId } });
     try {
