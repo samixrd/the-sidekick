@@ -171,22 +171,27 @@ export async function computeAllMetrics(): Promise<MetricsResult[]> {
     }
     const winRate = closedTrades > 0 ? Math.round((wins / Math.max(1, closedTrades)) * 100) / 100 : null;
 
-    // max drawdown (mark-to-market over time)
+    // max drawdown (mark-to-market over time). Denominator guard: only measure
+    // from a peak large enough to be meaningful (testnet positions can hover at
+    // dust; peak≈0 made drawdown explode to millions of %).
     let peak = -Infinity, peakVal = 0, mdd = 0, runUsdt = 0, runWbnb = 0;
     for (const e of evs) {
       if (isBuy(e)) { runUsdt += Number(e.amount_in ?? "0") / 1e18; runWbnb += Number(e.amount_out ?? "0") / 1e18; }
       else if (isSell(e)) { runWbnb = Math.max(0, runWbnb - Number(e.amount_in ?? "0") / 1e18); runUsdt -= Number(e.amount_out ?? "0") / 1e18; }
       const val = runWbnb * wbnbPrice - runUsdt;
       if (val > peak) { peak = val; peakVal = val; }
-      if (peak >= 0) { const dd = (peakVal - val) / Math.max(1e-9, peakVal); if (dd > mdd) mdd = dd; }
+      if (peakVal >= 0.01) { const dd = (peakVal - val) / peakVal; if (dd > mdd) mdd = dd; }
     }
-    const maxDrawdownPct = evs.length >= 3 ? Math.round(mdd * 1000) / 10 : null;
+    const maxDrawdownPct = evs.length >= 3 && peakVal >= 0.01 ? Math.round(mdd * 1000) / 10 : null;
 
-    // position size vs spend cap (needs a live delegation; else null)
+    // position size vs spend cap — SAME unit (USD): cap is tBNB/day, valued
+    // at the live WBNB price (comparing a $-denominated trade to a BNB-denom
+    // cap directly produced nonsense like 4400%).
     const { data: del } = await admin.from("delegations").select("spend_cap").eq("agent_wallet", wallet).limit(1).maybeSingle();
     const cap = del && del.spend_cap ? Number(del.spend_cap) : null;
+    const capUsd = cap !== null ? cap * wbnbPrice : null;
     const lastTradeAmt = swapEvs.length ? toUsd(swapEvs[swapEvs.length - 1].token_in ?? USDT, swapEvs[swapEvs.length - 1].amount_in ?? "0", wbnbPrice) : 0;
-    const avgPosVsCap = cap && cap > 0 ? lastTradeAmt / cap : null;
+    const avgPosVsCap = capUsd && capUsd > 0 ? lastTradeAmt / capUsd : null;
 
     // skill vs luck: alpha vs buy-and-hold (agent return vs price change over its own span) + best-trade concentration
     // Since agent only holds WBNB, its return ≈ buy-and-hold return → alpha ≈ 0.
