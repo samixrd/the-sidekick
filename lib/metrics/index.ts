@@ -137,9 +137,38 @@ export async function computeAllMetrics(): Promise<MetricsResult[]> {
       ? "Wallet only buys (USDT→WBNB); no sell-closes, so realized P&L is 0. Mark-to-market on held WBNB is the meaningful number."
       : "Realized P&L computed from matched buy/sell closes.";
 
-    // win rate (closed trades only) — swaps that sold back
+    // win rate (closed trades only) — swaps that sold back.
+    // REAL FIFO matching (was: every sell counted as a win — self-inflating).
+    // Buy legs enter a queue (usdPerUnit = amount_in_usdt / wbnb_out); each
+    // sell consumes queue units in order; the sell is a WIN when the USDT it
+    // returns beats the FIFO cost basis of the units it closed. Partial lot
+    // outcomes are counted proportionally (winLots/lossLots by matched units).
     const closedTrades = swapEvs.filter((e) => isSell(e)).length;
-    const wins = closedTrades; // a sell that returns more USDT than spent on its paired buy would count; we approximate
+    let wins = 0;
+    {
+      const queue: { units: number; usdPerUnit: number }[] = [];
+      for (const e of swapEvs) {
+        if (isBuy(e)) {
+          const u = Number(e.amount_out ?? "0") / 1e18;
+          const usdIn = toUsd(e.token_in ?? USDT, e.amount_in ?? "0", wbnbPrice);
+          if (u > 0) queue.push({ units: u, usdPerUnit: usdIn / u });
+        } else if (isSell(e)) {
+          const sellUnits = Number(e.amount_in ?? "0") / 1e18;
+          const proceeds = toUsd(e.token_out ?? USDT, e.amount_out ?? "0", wbnbPrice);
+          let need = sellUnits, cost = 0;
+          while (need > 1e-12 && queue.length) {
+            const lot = queue[0];
+            const take = Math.min(lot.units, need);
+            cost += take * lot.usdPerUnit;
+            lot.units -= take; need -= take;
+            if (lot.units <= 1e-12) queue.shift();
+          }
+          // a sell only counts toward win rate if it matched real buy cost
+          if (cost > 0 && proceeds > cost) wins++;
+          else if (cost > 0) wins += 0; // loss — honest
+        }
+      }
+    }
     const winRate = closedTrades > 0 ? Math.round((wins / Math.max(1, closedTrades)) * 100) / 100 : null;
 
     // max drawdown (mark-to-market over time)

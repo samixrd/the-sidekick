@@ -158,10 +158,13 @@ async function createGuardHire(args: {
   const { createWalletClient, createPublicClient, http, parseUnits, getAddress } = await import("viem");
   const { bscTestnet } = await import("viem/chains");
   const { privateKeyToAccount } = await import("viem/accounts");
-  const pub = createPublicClient({ chain: bscTestnet, transport: http("https://bsc-testnet-rpc.publicnode.com") });
+  const rpc = envGet("BSC_TESTNET_RPC_URL") || "https://bsc-testnet-rpc.publicnode.com";
+  const pub = createPublicClient({ chain: bscTestnet, transport: http(rpc) });
   const signer = privateKeyToAccount(args.agentKey);
-  const agent = createWalletClient({ chain: bscTestnet, transport: http("https://bsc-testnet-rpc.publicnode.com"), account: signer });
-  const abi = JSON.parse(readFileSync("contracts/build/contracts_GuardRouter_sol_GuardRouter.abi", "utf8"));
+  const agent = createWalletClient({ chain: bscTestnet, transport: http(rpc), account: signer });
+  // Bundled ABI (imported, so serverless file-tracing ships it — reading
+  // contracts/build/ at runtime breaks on Vercel/lambda deploys).
+  const abi = (await import("./abis/GuardRouter.json")).default;
   const hireId = ("0x" + Buffer.from(args.sessionKey).toString("hex").padEnd(64, "0").slice(0, 64)) as `0x${string}`;
   const min = parseUnits(String(args.minLiquidity), 18);
   // viem writeContract enforces EIP-55 checksum on address args — normalise each scope token.
