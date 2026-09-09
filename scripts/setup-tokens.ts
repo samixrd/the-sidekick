@@ -48,6 +48,7 @@ async function main() {
   const mainAddr = privateKeyToAccount(key(mainKey)).address;
 
   const cats = [
+    { env: "CAT_GRID_KEY", usdt: true, wbnb: true },
     { env: "CAT_REBALANCE_KEY", usdt: true, wbnb: true },
     { env: "CAT_YIELD_KEY", usdt: true, wbnb: true },
     { env: "CAT_HEALTH_KEY", usdt: false, wbnb: true },

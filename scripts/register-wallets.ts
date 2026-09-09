@@ -8,18 +8,16 @@ for (const line of readFileSync(resolve(process.cwd(), ".env"), "utf8").split(/\
 }
 async function main() {
   const admin = createAdminSupabaseClient();
-  // GRD-07 addr from the-tape keys
-  const keys = JSON.parse(readFileSync("D:/BNB HACKATHON/the-tape/agents/.agent-wallets.json", "utf8"));
-  const grd07 = privateKeyToAccount(("0x" + keys["GRD-07"].replace(/^0x/, "")) as `0x${string}`).address;
-  const rebal = privateKeyToAccount(("0x" + (process.env.CAT_REBALANCE_KEY ?? "").replace(/^0x/, "")) as `0x${string}`).address;
-  const yieldA = privateKeyToAccount(("0x" + (process.env.CAT_YIELD_KEY ?? "").replace(/^0x/, "")) as `0x${string}`).address;
-  const health = privateKeyToAccount(("0x" + (process.env.CAT_HEALTH_KEY ?? "").replace(/^0x/, "")) as `0x${string}`).address;
+  const grid = privateKeyToAccount(("0x" + (process.env.CAT_GRID_KEY ?? "").replace(/^0x/, "")) as `0x${string}`);
+  const rebal = privateKeyToAccount(("0x" + (process.env.CAT_REBALANCE_KEY ?? "").replace(/^0x/, "")) as `0x${string}`);
+  const yieldA = privateKeyToAccount(("0x" + (process.env.CAT_YIELD_KEY ?? "").replace(/^0x/, "")) as `0x${string}`);
+  const health = privateKeyToAccount(("0x" + (process.env.CAT_HEALTH_KEY ?? "").replace(/^0x/, "")) as `0x${string}`);
 
   const wallets = [
-    { wallet: grd07.toLowerCase(), label: "Hermes — Grid (GRD-07)" },
-    { wallet: rebal.toLowerCase(), label: "Hermes — Rebalancing" },
-    { wallet: yieldA.toLowerCase(), label: "Hermes — Yield" },
-    { wallet: health.toLowerCase(), label: "Hermes — Health-Factor" },
+    { wallet: grid.address.toLowerCase(), label: "Hermes — Grid" },
+    { wallet: rebal.address.toLowerCase(), label: "Hermes — Rebalancing" },
+    { wallet: yieldA.address.toLowerCase(), label: "Hermes — Yield" },
+    { wallet: health.address.toLowerCase(), label: "Hermes — Health-Factor" },
   ];
   console.log("registering 4 category-distinct wallets:\n");
   for (const w of wallets) {

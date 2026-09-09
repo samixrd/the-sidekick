@@ -104,16 +104,136 @@ on: schedule every 15 min → npm run treasury:topup   # wallets never run dry
 on: schedule every 5 min  → npm run index:run        # checkpointed sweep
 ```
 
-Try it locally:
+## Live instance
+
+**https://the-sidekick.vercel.app** — the 4 agents above are running against
+BSC testnet right now, driven by the repo's GitHub Actions schedules. No
+setup needed to browse, view feeds, or hire (you only need a wallet with
+tBNB from the [testnet faucet](https://www.bnbchain.org/en/test-net-faucet)).
+
+## Setup guide — run your own instance
+
+Requirements: **Node ≥ 20**, a free **Supabase** project, and a browser
+wallet on BSC **testnet**. Everything below is BSC testnet (chain 97) —
+throwaway keys, fake money.
+
+### 1. Clone + install
 
 ```bash
+git clone <repo> && cd the-sidekick
 npm install
-cp .env.example .env        # fill Supabase + agent keys (testnet throwaways)
-npm run migrate             # applies supabase/migrations/0001..0011
-npm run index:seed-wallet && npm run index:run
-npm run strategy:cycle      # one full autonomy pass against live testnet
-npm run dev                 # http://localhost:3000
 ```
+
+### 2. Supabase
+
+1. Create a project at [supabase.com](https://supabase.com) (free tier).
+2. Dashboard → **Settings → API**: copy the Project URL, the
+   `sb_publishable_…` anon key, and the `sb_secret_…` service-role key.
+3. Dashboard → **Connect → ORM**: copy the Postgres connection string
+   (keep the pooler host + `sslmode=require`).
+
+### 3. Environment
+
+```bash
+cp .env.example .env
+```
+
+Fill **section A** (the four Supabase values). Leave B/C alone for now.
+
+### 4. Schema
+
+```bash
+npm run check:supabase   # verifies the env wiring
+npm run migrate          # applies supabase/migrations/0001..0011 (idempotent)
+```
+
+### 5. Wallets + funding (testnet only)
+
+Generate your own keys — or reuse none of ours; nothing here needs approval:
+
+1. `ERC8004_SIGNER_KEY` is your **treasury signer**: create a random
+   32-byte hex (e.g. `openssl rand -hex 32`), put it in `.env`, then fund
+   the resulting address with ~0.2 tBNB from the
+   [testnet faucet](https://www.bnbchain.org/en/test-net-faucet).
+2. ```bash
+   npm run setup:wallets   # generates the 4 CAT_*_KEY wallets, funds each
+                           # 0.012 tBNB from the treasury, writes them to .env
+   npm run setup:tokens    # gives each wallet its USDT/WBNB strategy legs
+   ```
+
+### 6. Contracts
+
+`GUARD_ROUTER` and `AGENT_LISTING_CONTRACT` in `.env.example` ship with
+**our already-deployed BSC-testnet instances** — the fastest path is to
+leave them and skip this step (testnet contracts are public goods; you're
+only sharing the listing registry, which is per-agent anyway).
+
+To deploy your own instead:
+
+```bash
+npm run deploy:guard     # compiles artifacts in contracts/build, sends
+npm run deploy:listing   # real create txs, writes addresses into .env
+```
+
+(To recompile `contracts/*.sol` yourself: `npm i -D solc@0.8.19 &&
+node scripts/compile-guard.js`. `AgentListing` ships prebuilt.)
+
+### 7. Register + list the 4 agents (your instance, your wallets)
+
+```bash
+npm run register:wallets          # agent_wallets -> indexer will track them
+npm run register:list-categories  # per wallet: ERC-8004 register() + listAgent()
+                                  # with a real 0.01 tBNB bond (self-paid)
+```
+
+### 8. Index once, then run
+
+```bash
+npm run index:run        # first pass scans the rolling window (~2-4 min)
+npm run dev              # http://localhost:3000 — marketplace + profiles
+npm run strategy:cycle   # one full autonomy pass (or leave it to Actions)
+```
+
+### 9. Keep it autonomous 24/7 (GitHub Actions)
+
+The two workflows (`.github/workflows/`) only need repo **Secrets** — set
+them once and the loop runs without your laptop:
+
+```bash
+# from the repo root, with gh auth'd to your account:
+npm run setup:wallets   # (already done locally — reuse the .env)
+for K in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY BSC_TESTNET_RPC_URL \
+         GUARD_ROUTER ERC8004_SIGNER_KEY CAT_GRID_KEY CAT_REBALANCE_KEY \
+         CAT_YIELD_KEY CAT_HEALTH_KEY; do
+  V=$(grep "^$K=" .env | cut -d'"' -f2); gh secret set "$K" --body "$V"
+done
+```
+
+`agent-autonomy.yml` runs treasury → strategy cycle → auto-revoke every
+15 min; `index-fast.yml` sweeps the chain every 5 min (checkpointed).
+Private repos run these free on GitHub's runners.
+
+### Deploy to Vercel (optional)
+
+```bash
+vercel link && vercel env pull .env.local   # or copy your .env values
+vercel deploy --prod
+```
+
+Add the same Supabase + contract vars in **Project → Settings →
+Environment Variables** (`NEXT_PUBLIC_*` as plaintext, the rest as
+sensitive). The hire SSE route sets `maxDuration = 300` — on the hobby
+plan cap is 60 s, so hire a low-traffic preview or upgrade for demos.
+
+**Troubleshooting**
+- `ERC8004_IDENTITY_REGISTRY … not a valid address` → section C not filled.
+- Hire fails with `no private key available for agent` → the agent wallet
+  has no `CAT_*_KEY` in the server env (the hire flow needs the agent
+  signer to grant the session; on Vercel set the CAT keys as env vars).
+- Profile shows *Idle* → honest state: the strategy's thresholds didn't
+  fire this cycle. The decision feed row tells you exactly why.
+- public `*.vercel.app` URLs get flagged by MetaMask's phishing blocklist
+  (wildcard-level, not app-level) — use a custom domain for wallet demos.
 
 ## Judging / testing guide
 

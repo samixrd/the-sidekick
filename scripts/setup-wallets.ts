@@ -1,6 +1,7 @@
 /**
- * Generate 3 category-distinct wallets (Rebalancing, Yield, Health) + fund them.
- * Keys are written to .env (gitignored, private). Prints only addresses.
+ * Generate 4 category-distinct wallets (Grid, Rebalancing, Yield, Health) +
+ * fund them from the treasury signer. Keys are written to .env (gitignored,
+ * private). Idempotent: existing keys are kept. Prints only addresses.
  * Run:  npm run setup:wallets
  */
 import { privateKeyToAccount } from "viem/accounts";
@@ -18,6 +19,7 @@ for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
 const RPC = "https://bsc-testnet-rpc.publicnode.com";
 
 const CATS = [
+  { envKey: "CAT_GRID_KEY", label: "grid" },
   { envKey: "CAT_REBALANCE_KEY", label: "rebalancing" },
   { envKey: "CAT_YIELD_KEY", label: "yield" },
   { envKey: "CAT_HEALTH_KEY", label: "health" },

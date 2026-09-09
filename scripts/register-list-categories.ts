@@ -18,12 +18,9 @@ import { requireErc8004Config } from "../lib/erc8004";
 import type { Address } from "viem";
 
 const env = readFileSync(process.cwd() + "/.env", "utf8");
-const keys = JSON.parse(readFileSync("D:/BNB HACKATHON/the-tape/agents/.agent-wallets.json", "utf8"));
 
 function walletKey(catEnv: string): `0x${string}` {
-  const raw = catEnv
-    ? ((env.match(new RegExp(`^${catEnv}="?([^"\\r\\n]+)`, "m"))?.[1] ?? "").replace(/^0x/, ""))
-    : keys["GRD-07"].replace(/^0x/, "");
+  const raw = (env.match(new RegExp(`^${catEnv}="?([^"\r\n]+)`, "m"))?.[1] ?? "").replace(/^0x/, "");
   return ("0x" + raw) as `0x${string}`;
 }
 
@@ -31,8 +28,8 @@ const AGENTS = [
   {
     name: "Hermes — Grid", category: "Grid Trading", catEnum: 1,
     description: "Grid trading agent executing BNB/USDT range trades on PancakeSwap, indexed from real swap activity.",
-    key: walletKey(""),
-    wallet: privateKeyToAccount(walletKey("")).address.toLowerCase(),
+    key: walletKey("CAT_GRID_KEY"),
+    wallet: privateKeyToAccount(walletKey("CAT_GRID_KEY")).address.toLowerCase(),
   },
   {
     name: "Hermes — Rebalancing", category: "Rebalancing", catEnum: 0,
